@@ -20,6 +20,7 @@ export const Navbar = () => {
 
   const navLinks = [
     { name: 'Home', path: '/' },
+    ...(isAuthenticated ? [{ name: 'Dashboard', path: '/dashboard' }] : []),
     { name: 'About Us', path: '/about' },
     { name: 'Services', path: '/services' },
     { name: 'Contact', path: '/contact' },
@@ -52,11 +53,10 @@ export const Navbar = () => {
               <Link
                 key={link.path}
                 to={link.path}
-                className={`font-manrope text-sm font-medium transition-colors duration-300 ${
-                  isActive(link.path)
+                className={`font-manrope text-sm font-medium transition-colors duration-300 ${isActive(link.path)
                     ? 'text-gold'
                     : 'text-white/70 hover:text-white'
-                }`}
+                  }`}
                 data-testid={`nav-link-${link.name.toLowerCase().replace(' ', '-')}`}
               >
                 {link.name}
@@ -146,11 +146,10 @@ export const Navbar = () => {
               <Link
                 key={link.path}
                 to={link.path}
-                className={`block py-3 px-4 rounded-lg font-manrope ${
-                  isActive(link.path)
+                className={`block py-3 px-4 rounded-lg font-manrope ${isActive(link.path)
                     ? 'text-gold bg-gold/10'
                     : 'text-white/70 hover:text-white hover:bg-white/5'
-                }`}
+                  }`}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {link.name}
@@ -159,13 +158,6 @@ export const Navbar = () => {
             <div className="pt-4 border-t border-white/10">
               {isAuthenticated ? (
                 <>
-                  <Link
-                    to="/dashboard"
-                    className="block py-3 px-4 rounded-lg text-white/70 hover:text-white hover:bg-white/5"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Dashboard
-                  </Link>
                   <button
                     className="w-full text-left py-3 px-4 rounded-lg text-red-400 hover:bg-white/5"
                     onClick={() => {

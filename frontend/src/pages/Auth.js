@@ -132,7 +132,7 @@ export const Signup = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
@@ -140,11 +140,6 @@ export const Signup = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (password !== confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
 
     if (password.length < 6) {
       toast.error('Password must be at least 6 characters');
@@ -154,7 +149,7 @@ export const Signup = () => {
     setLoading(true);
 
     try {
-      await signup(phone, password, name);
+      await signup(phone, password, name, referralCode);
       toast.success('Account created successfully!');
       navigate('/dashboard');
     } catch (error) {
@@ -247,20 +242,19 @@ export const Signup = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="text-white font-manrope">
-                  Confirm Password
+                <Label htmlFor="referralCode" className="text-white font-manrope">
+                  Referral Code (Optional)
                 </Label>
                 <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-white/40" />
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-white/40" />
                   <Input
-                    id="confirmPassword"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Confirm your password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
+                    id="referralCode"
+                    type="text"
+                    placeholder="Enter referral code"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value)}
                     className="bg-[#1a1a1a] border-white/10 text-white placeholder:text-white/40 focus:border-gold h-12 pl-12"
-                    data-testid="signup-confirm-password-input"
+                    data-testid="signup-referral-input"
                   />
                 </div>
               </div>

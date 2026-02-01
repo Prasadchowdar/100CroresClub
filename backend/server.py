@@ -33,13 +33,13 @@ security = HTTPBearer()
 
 # Club tiers configuration
 CLUB_TIERS = [
-    {"name": "Bronze Club", "points_required": 10000000, "icon": "bronze"},
-    {"name": "Silver Club", "points_required": 50000000, "icon": "silver"},
-    {"name": "Gold Club", "points_required": 100000000, "icon": "gold"},
-    {"name": "Platinum Club", "points_required": 250000000, "icon": "platinum"},
-    {"name": "Diamond Club", "points_required": 500000000, "icon": "diamond"},
-    {"name": "Master Club", "points_required": 750000000, "icon": "master"},
-    {"name": "Grandmaster Club", "points_required": 1000000000, "icon": "grandmaster"},
+    {"name": "1 Crore ", "points_required": 10000000, "icon": "bronze"},
+    {"name": "5 Crore ", "points_required": 50000000, "icon": "silver"},
+    {"name": "10 Crore ", "points_required": 100000000, "icon": "gold"},
+    {"name": "25 Crore ", "points_required": 250000000, "icon": "platinum"},
+    {"name": "50 Crore ", "points_required": 500000000, "icon": "diamond"},
+    {"name": "75 Crore ", "points_required": 750000000, "icon": "master"},
+    {"name": "100 Crore", "points_required": 1000000000, "icon": "grandmaster"},
 ]
 
 DAILY_REWARD_POINTS = 10000
@@ -61,6 +61,7 @@ class UserCreate(BaseModel):
     phone: str
     password: str
     name: str
+    referral_code: Optional[str] = None
 
 class UserLogin(BaseModel):
     phone: str
@@ -184,30 +185,58 @@ async def signup(user_data: UserCreate):
     if existing_user:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     
+    # Validation for referral code if provided
+    referrer = None
+    if user_data.referral_code:
+        referrer = await db.users.find_one({"referral_code": user_data.referral_code})
+        if not referrer:
+            raise HTTPException(status_code=400, detail="Invalid referral code")
+    
     # Create user
     user_id = str(uuid.uuid4())
-    referral_code = generate_referral_code()
+    my_referral_code = generate_referral_code()
     
     # Ensure unique referral code
-    while await db.users.find_one({"referral_code": referral_code}):
-        referral_code = generate_referral_code()
+    while await db.users.find_one({"referral_code": my_referral_code}):
+        my_referral_code = generate_referral_code()
     
     now = datetime.now(timezone.utc).isoformat()
+    
+    # Calculate initial points (Always 0 for new user, only referrer gets bonus)
+    initial_points = 0
+    initial_tier = calculate_club_tier(initial_points)
+
     user_doc = {
         "id": user_id,
         "phone": user_data.phone,
         "password": hash_password(user_data.password),
         "name": user_data.name,
-        "points": 0,
-        "referral_code": referral_code,
+        "points": initial_points,
+        "referral_code": my_referral_code,
         "referrals_count": 0,
-        "referred_by": None,
-        "club_tier": 0,
+        "referred_by": referrer["id"] if referrer else None,
+        "club_tier": initial_tier,
         "last_reward_claim": None,
         "created_at": now
     }
     
     await db.users.insert_one(user_doc)
+    
+    # If there was a referrer, update them
+    if referrer:
+        referrer_new_points = referrer["points"] + REFERRAL_REWARD_POINTS
+        referrer_new_tier = calculate_club_tier(referrer_new_points)
+        
+        await db.users.update_one(
+            {"id": referrer["id"]},
+            {
+                "$set": {
+                    "points": referrer_new_points,
+                    "club_tier": referrer_new_tier
+                },
+                "$inc": {"referrals_count": 1}
+            }
+        )
     
     token = create_token(user_id)
     
@@ -217,10 +246,10 @@ async def signup(user_data: UserCreate):
             id=user_id,
             phone=user_data.phone,
             name=user_data.name,
-            points=0,
-            referral_code=referral_code,
+            points=initial_points,
+            referral_code=my_referral_code,
             referrals_count=0,
-            club_tier=0,
+            club_tier=initial_tier,
             last_reward_claim=None,
             created_at=now
         )
@@ -287,26 +316,37 @@ async def get_points(current_user: dict = Depends(get_current_user)):
 async def claim_daily_reward(current_user: dict = Depends(get_current_user)):
     """Claim daily reward"""
     last_claim = current_user.get("last_reward_claim")
-    now = datetime.now(timezone.utc)
+    
+    # Use IST (Indian Standard Time) for the day check
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist_tz)
     
     if last_claim:
-        last_claim_time = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
-        time_since_claim = now - last_claim_time
+        # Convert stored UTC string to datetime object
+        last_claim_utc = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
+        # Convert to IST
+        last_claim_ist = last_claim_utc.astimezone(ist_tz)
         
-        if time_since_claim < timedelta(hours=COOLDOWN_HOURS):
-            remaining = timedelta(hours=COOLDOWN_HOURS) - time_since_claim
-            next_claim = now + remaining
+        # Check if the claim was made today (IST)
+        if last_claim_ist.date() == now_ist.date():
+            # Already claimed today
+            # Calculate time until midnight IST
+            tomorrow_midnight = (now_ist + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            
             return ClaimRewardResponse(
                 success=False,
                 points_earned=0,
                 total_points=current_user["points"],
-                next_claim_available=next_claim.isoformat(),
-                message=f"Come back in {int(remaining.total_seconds() // 3600)} hours"
+                next_claim_available=tomorrow_midnight.isoformat(),
+                message="Come back tomorrow"
             )
     
     # Award points
     new_points = current_user["points"] + DAILY_REWARD_POINTS
     new_tier = calculate_club_tier(new_points)
+    
+    # Store claim time in UTC as usual for consistency
+    now_utc = datetime.now(timezone.utc)
     
     await db.users.update_one(
         {"id": current_user["id"]},
@@ -314,18 +354,18 @@ async def claim_daily_reward(current_user: dict = Depends(get_current_user)):
             "$set": {
                 "points": new_points,
                 "club_tier": new_tier,
-                "last_reward_claim": now.isoformat()
+                "last_reward_claim": now_utc.isoformat()
             }
         }
     )
     
-    next_claim = now + timedelta(hours=COOLDOWN_HOURS)
+    tomorrow_midnight = (now_ist + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     
     return ClaimRewardResponse(
         success=True,
         points_earned=DAILY_REWARD_POINTS,
         total_points=new_points,
-        next_claim_available=next_claim.isoformat(),
+        next_claim_available=tomorrow_midnight.isoformat(),
         message=f"Congratulations! You earned {DAILY_REWARD_POINTS:,} points!"
     )
 
@@ -333,33 +373,38 @@ async def claim_daily_reward(current_user: dict = Depends(get_current_user)):
 async def get_cooldown(current_user: dict = Depends(get_current_user)):
     """Get time until next reward is available"""
     last_claim = current_user.get("last_reward_claim")
-    now = datetime.now(timezone.utc)
+    
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist_tz)
     
     if not last_claim:
         return {
             "can_claim": True,
-            "next_claim_available": now.isoformat(),
+            "next_claim_available": now_ist.isoformat(),
             "seconds_remaining": 0
         }
     
-    last_claim_time = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
-    time_since_claim = now - last_claim_time
+    last_claim_utc = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
+    last_claim_ist = last_claim_utc.astimezone(ist_tz)
     
-    if time_since_claim >= timedelta(hours=COOLDOWN_HOURS):
-        return {
+    # If last claim was before today (in IST), we can claim
+    if last_claim_ist.date() < now_ist.date():
+         return {
             "can_claim": True,
-            "next_claim_available": now.isoformat(),
+            "next_claim_available": now_ist.isoformat(),
             "seconds_remaining": 0
         }
     
-    remaining = timedelta(hours=COOLDOWN_HOURS) - time_since_claim
-    next_claim = now + remaining
+    # Otherwise, wait for tomorrow
+    tomorrow_midnight = (now_ist + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    remaining = tomorrow_midnight - now_ist
     
     return {
         "can_claim": False,
-        "next_claim_available": next_claim.isoformat(),
+        "next_claim_available": tomorrow_midnight.isoformat(),
         "seconds_remaining": int(remaining.total_seconds())
     }
+
 
 # --- Referral Routes ---
 @api_router.post("/referral/apply", response_model=ReferralResponse)

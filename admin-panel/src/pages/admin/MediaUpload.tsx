@@ -14,10 +14,13 @@ import { Image, Upload, CheckCircle2, Trash2, Loader2, RefreshCw } from "lucide-
 import { toast } from "sonner";
 
 interface MediaFile {
-  name: string;
+  id: string;
+  filename: string;
+  original_name: string;
   url: string;
   size: number;
-  lastModified?: string;
+  mimetype: string;
+  created_at?: string;
 }
 
 export default function MediaUpload() {
@@ -32,13 +35,24 @@ export default function MediaUpload() {
     fetchMedia();
   }, []);
 
+  const getAuthHeaders = () => {
+    const session = localStorage.getItem('admin_session');
+    if (session) {
+      const parsed = JSON.parse(session);
+      return { Authorization: `Bearer ${parsed.access_token}` };
+    }
+    return {};
+  };
+
   const fetchMedia = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/media/list`);
+      const response = await fetch(`${API_BASE_URL}/media`, {
+        headers: getAuthHeaders()
+      });
       if (response.ok) {
         const data = await response.json();
-        setUploadedMedia(data.files || []);
+        setUploadedMedia(data || []);
       }
     } catch (err) {
       console.error("Failed to fetch media:", err);
@@ -69,6 +83,7 @@ export default function MediaUpload() {
     try {
       const response = await fetch(`${API_BASE_URL}/media/upload-multiple`, {
         method: "POST",
+        headers: getAuthHeaders(),
         body: formData,
       });
 
@@ -90,10 +105,11 @@ export default function MediaUpload() {
     }
   };
 
-  const handleDelete = async (fileName: string) => {
+  const handleDelete = async (mediaId: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/media/delete/${fileName}`, {
+      const response = await fetch(`${API_BASE_URL}/media/${mediaId}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
       });
 
       if (response.ok) {
@@ -248,16 +264,16 @@ export default function MediaUpload() {
               </p>
             ) : (
               <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto">
-                {uploadedMedia.map((media, index) => (
+                {uploadedMedia.map((media) => (
                   <div
-                    key={index}
+                    key={media.id}
                     className="relative group rounded-lg border overflow-hidden"
                   >
-                    {media.url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                    {media.mimetype?.startsWith('image') ? (
                       <img
                         src={media.url}
                         className="h-24 w-full object-cover"
-                        alt={media.name}
+                        alt={media.original_name}
                       />
                     ) : (
                       <video
@@ -270,7 +286,7 @@ export default function MediaUpload() {
                         variant="destructive"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => handleDelete(media.name)}
+                        onClick={() => handleDelete(media.id)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

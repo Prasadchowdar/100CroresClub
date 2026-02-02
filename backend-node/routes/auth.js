@@ -50,7 +50,7 @@ const createToken = (userId) => {
 
 // Signup
 router.post('/signup', async (req, res) => {
-  const { phone, password, name, referral_code } = req.body;
+  const { phone, password, name, referral_code, place } = req.body;
 
   if (!phone || !password || !name) {
     return res.status(400).json({ message: 'Phone, password, and name are required' });
@@ -108,6 +108,7 @@ router.post('/signup', async (req, res) => {
       .input('phone', sql.NVarChar, phone)
       .input('password', sql.NVarChar, hashedPassword)
       .input('name', sql.NVarChar, name)
+      .input('place', sql.NVarChar, place || null)
       .input('points', sql.BigInt, initialPoints)
       .input('referral_code', sql.NVarChar, myReferralCode)
       .input('referrals_count', sql.Int, 0)
@@ -115,8 +116,8 @@ router.post('/signup', async (req, res) => {
       .input('club_tier', sql.Int, initialTier)
       .input('created_at', sql.DateTime, new Date())
       .query(`
-        INSERT INTO users (id, phone, password, name, points, referral_code, referrals_count, referred_by, club_tier, last_reward_claim, created_at)
-        VALUES (@id, @phone, @password, @name, @points, @referral_code, @referrals_count, @referred_by, @club_tier, NULL, @created_at)
+        INSERT INTO users (id, phone, password, name, place, points, referral_code, referrals_count, referred_by, club_tier, last_reward_claim, created_at)
+        VALUES (@id, @phone, @password, @name, @place, @points, @referral_code, @referrals_count, @referred_by, @club_tier, NULL, @created_at)
       `);
 
     // Update referrer if exists

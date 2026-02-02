@@ -4,7 +4,6 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { getPool, sql } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
-import { sendOtpEmail } from '../utils/email.js';
 
 const router = express.Router();
 
@@ -80,7 +79,7 @@ router.post('/signup', async (req, res) => {
   }
 });
 
-// Admin Login - Step 1: Verify credentials and send OTP
+// Admin Login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -106,92 +105,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid Credentials' });
     }
 
-    // Generate 6-digit OTP
-    const otp = crypto.randomInt(100000, 999999).toString();
-
-    // Delete old OTPs for this email
-    await pool.request()
-      .input('email', sql.NVarChar, email)
-      .query('DELETE FROM admin_otps WHERE email = @email');
-
-    // Insert new OTP (expires in 5 minutes for security)
-    await pool.request()
-      .input('id', sql.NVarChar, uuidv4())
-      .input('email', sql.NVarChar, email)
-      .input('otp_code', sql.NVarChar, otp)
-      .input('expires_at', sql.DateTime, new Date(Date.now() + 5 * 60 * 1000))
-      .input('created_at', sql.DateTime, new Date())
-      .query(`
-        INSERT INTO admin_otps (id, email, otp_code, expires_at, created_at)
-        VALUES (@id, @email, @otp_code, @expires_at, @created_at)
-      `);
-
-    // Send OTP via email
-    try {
-      await sendOtpEmail(email, otp, 5);
-      console.log(`✅ Login OTP sent to ${email}`);
-    } catch (emailError) {
-      console.error('❌ Failed to send OTP email:', emailError);
-      // Still log OTP to console for development/testing
-      console.log(`�� OTP for ${email}: ${otp}`);
-    }
-
-    return res.status(200).json({
-      message: 'OTP sent to your email',
-      email: email,
-      requiresOtp: true
-    });
-  } catch (err) {
-    console.error('Admin login error:', err);
-    return res.status(500).json({ message: 'Internal Server Error', error: err.message });
-  }
-});
-
-// Admin Login - Step 2: Verify OTP and return token
-router.post('/verify-login-otp', async (req, res) => {
-  const { email, otp } = req.body;
-
-  if (!email || !otp) {
-    return res.status(400).json({ message: 'Email and OTP are required' });
-  }
-
-  try {
-    const pool = getPool();
-
-    // Verify OTP
-    const otpResult = await pool.request()
-      .input('email', sql.NVarChar, email)
-      .input('otp', sql.NVarChar, otp)
-      .query(`
-        SELECT TOP 1 * FROM admin_otps
-        WHERE email = @email AND otp_code = @otp AND expires_at > GETDATE()
-        ORDER BY created_at DESC
-      `);
-
-    if (otpResult.recordset.length === 0) {
-      return res.status(400).json({ message: 'Invalid or expired OTP' });
-    }
-
-    // Get admin details
-    const adminResult = await pool.request()
-      .input('email', sql.NVarChar, email)
-      .query('SELECT * FROM admins WHERE email = @email');
-
-    if (adminResult.recordset.length === 0) {
-      return res.status(404).json({ message: 'Admin not found' });
-    }
-
-    const admin = adminResult.recordset[0];
-
-    // Delete used OTP
-    await pool.request()
-      .input('email', sql.NVarChar, email)
-      .query('DELETE FROM admin_otps WHERE email = @email');
-
-    // Generate access token
     const token = createAdminToken(admin.id);
-
-    console.log(`✅ Admin ${email} logged in successfully with 2FA`);
 
     return res.status(200).json({
       message: 'Login Successful',
@@ -204,7 +118,7 @@ router.post('/verify-login-otp', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Verify login OTP error:', err);
+    console.error('Admin login error:', err);
     return res.status(500).json({ message: 'Internal Server Error', error: err.message });
   }
 });
@@ -331,7 +245,7 @@ router.get('/export', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Send OTP (for password/email change in Security page)
+// Send OTP
 router.post('/send-otp', async (req, res) => {
   const { email } = req.body;
 
@@ -369,15 +283,8 @@ router.post('/send-otp', async (req, res) => {
         VALUES (@id, @email, @otp_code, @expires_at, @created_at)
       `);
 
-    // Send OTP via email
-    try {
-      await sendOtpEmail(email, otp, 10);
-      console.log(`✅ OTP sent to ${email} for account management`);
-    } catch (emailError) {
-      console.error('❌ Failed to send OTP email:', emailError);
-      // Still log OTP to console for development/testing
-      console.log(`�� OTP for ${email}: ${otp}`);
-    }
+    // TODO: Send email with OTP (for now just log it)
+    console.log(`OTP for ${email}: ${otp}`);
 
     return res.status(200).json({ message: 'OTP sent successfully' });
   } catch (err) {
@@ -512,7 +419,7 @@ router.post('/change-email', async (req, res) => {
   }
 });
 
-// Analytics: Active Users (users registered in last 7 days)
+
 router.get('/analytics/active-users', authenticateAdmin, async (req, res) => {
   try {
     const pool = getPool();
@@ -618,7 +525,7 @@ router.get('/analytics/weekly-growth', authenticateAdmin, async (req, res) => {
 
     const request = pool.request();
     if (startDate) request.input('startDate', sql.Date, startDate);
-    if (endDate) request.input('endDate', endDate);
+    if (endDate) request.input('endDate', sql.Date, endDate);
 
     const result = await request.query(query);
 
@@ -628,7 +535,5 @@ router.get('/analytics/weekly-growth', authenticateAdmin, async (req, res) => {
     return res.status(500).json({ message: 'Internal Server Error', error: err.message });
   }
 });
-
 export default router;
 export { authenticateAdmin };
-
